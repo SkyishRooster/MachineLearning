@@ -1,0 +1,115 @@
+---
+title: "452_HW6_Ashley_YUE"
+author: "Ashley Yue"
+date: "2023-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1. [10 points] PCA (Principal Component Analysis) is an unsupervised ML method that is often used to reduce dimensionality of large data sets.
+### 1) Please explain how PCA can be used to reduce the number of variables.
+PCA itself is a lossless method that does not reduce the number of variables. However, we can take advantage of the results of PCA as a reference for model selection. Specifically, PCA tries to describe the data in a new coordinate system where the first dimension is determined in a way that ensures it to explain the most variation of the data and the rest dimensions are designed one by one to explain the most variance of the rest variation. Therefore, by selecting the first several components, components that explain the most proportion of the total variance, and make sure the aggregated proportion of explained variance is above the the threshold, which is typically 75% or 80%, we can maintain a well-explanatory model with much fewer number of variables.
+
+### 2) Please highlight limitations of PCA.
+1. Linearity: PCA assumes that the relationships between variables are linear, which means that the change in one variable is proportional to the change in another variable. This assumption may not be valid for all datasets.
+
+2. Outliers: PCA is sensitive to outliers, which can greatly affect the results of the analysis. Outliers can skew the principal components and may lead to incorrect interpretations of the data.
+
+3. Normality: PCA assumes that the data is normally distributed, which may not be true for all datasets. Non-normal data can lead to biased results in PCA.
+
+4. Interpretability: Although PCA can reduce the dimensionality of a dataset, it can be difficult to interpret the resulting principal components in real-world terms since the components are linear combination of all the original variables.
+
+5. Data scaling: PCA is sensitive to the scaling of the data. If the data is not scaled correctly, the results of the analysis may be misleading.
+
+
+## 2. [40 points] Trees are supervised algorithms that can be used for both regression and classification tasks. For the following trees, please explain how it is grown (i.e., how to select the variables to split on at each node)
+### 1) Classification Tree
+For a classification tree, for each feature, we split the data into subsets in a sequence, which means we only split the data into subsets by one condition of one variable at a time, for example, instead of processing whether x1 < 0 and x2 < 0 in one step , we decide on whether x1 < 0 and then decide on whether x2 < 0. The goal is to maximize the purity of the subsets, which can be measured by the Gini Deviance: $-\sum^n_{i=1}\hat{p}_{yi}(1-\hat{p}_{yi})$ or the Classification Deviance: $-\sum^n_{i=1}log(\hat{p}_{yi})$  
+In a classification tree, each leaf node is assigned a class label based on the majority class of the training samples that fall into that leaf.  
+We stop splitting the growing the tree when some minimum thresholds are hit. The pre-defined thresholds can be the size of the leaf nodes, the deviance improvement of adding a branch, and the depth of the tree.
+
+### 2) Regression Tree
+For a regression tree, for each feature, we also split the data into subsets in a sequence. While the goal is also to maximize the purity of the subsets (to minimize the variability of the target variable within each subset), we use different criteria for measurement, for example, the Regression Deviance: $\sum^n_{i=1}(y_i-\hat{y}_i)^2$  
+In a regression tree, each leaf node is assigned a prediction value based on the average of the target variable of the training samples that fall into that leaf.  
+For determining when to stop the splitting, we can make use of the same pre-defined minimum thresholds as mentioned for classification trees - the size of the leaf nodes, the deviance improvement of adding a branch, and the depth of the tree.
+
+
+## 3. [10 points] Please explain how a tree is pruned?
+We can prune a tree by removing split rules from the bottom up - at each step, remove the split that contributes least to deviance reduction. Then for all the candidates trees at every step, we use cross validation to choose the tree that has the best out-of-sample performance.  
+The main idea behind pruning is to find the right balance between underfitting and overfitting. A tree that is too complex can overfit the training data and have poor performance on new data, while a tree that is too simple can underfit the data and have poor predictive power. Pruning helps to reduce the complexity of the tree and improve its generalization performance.
+
+
+## 4. [10 points] Please explain why a Random Forest usually outperforms regular regression methods (such as linear regression, logistic regression, and lasso regression).
+1. Nonlinear relationships: Linear regression, logistic regression, and lasso regression all assume a linear relationship between the input features and the output variable. This assumption may not hold in practice, where the relationship between the input features and the output variable may be nonlinear or have complex interactions. Random Forest can capture nonlinear relationships and interactions between the input features and the output variable by using decision trees, which can improve its predictive performance.
+
+2. Robustness to outliers: Linear regression, logistic regression, and lasso regression are sensitive to outliers and noise in the data. Outliers and noise can affect the model's performance and lead to overfitting. Random Forest is an ensemble learning method, which combines multiple decision trees to make predictions. Ensemble learning can improve the accuracy and robustness of the model by averaging out individual errors and biases in the component models.
+
+3. Generalization: Linear regression, logistic regression, and lasso regression can overfit the training data and have poor generalization performance on new data. Random Forest can improve the generalization performance of the model by combining multiple decision trees and averaging out individual errors and biases in the component models.
+
+
+## 5. [30 points] Use the Trasaction.csv dataset to create payment default classifier ('payment_default ' column) and explain your output using:
+### 1) Classification Tree (CART)
+```{r}
+library(tree)
+library(randomForest)
+library(readr)
+
+Transaction <- read_csv("Transaction.csv")
+
+# drop the id column
+transac <- Transaction[,-1]
+```
+
+```{r}
+# Grow a tree with details
+ctree = tree(payment_default ~ ., data = transac, mindev = 0.002)
+
+# Plot the results
+plot(ctree, col=8)
+text(ctree, cex=.7, font=2)
+```
+
+```{r}
+# library(rpart)
+# library(rpart.plot)
+# 
+# rtree <- rpart(payment_default ~ ., data = transac, control = rpart.control(cp = 0.002), method = "class")
+# rpart.plot(rtree, type = 1)
+```
+
+
+```{r}
+# Perform Cross Validation to select the best structure of the tree
+cv_tree <- cv.tree(ctree, ,prune.tree, K = 3000)
+
+plot(cv_tree$size, cv_tree$dev)
+```
+
+```{r}
+# Prune the tree
+prune_ctree <- prune.tree(ctree, best = 3)
+
+plot(prune_ctree)
+text(prune_ctree, cex = 0.75, font = 2)
+```
+
+The results of the decision tree tell us that:  
+1. If someone's pay_0 is greater than 1.5, then they are predicted to default the payment, since the possibility of defaulting is high - 0.6955;  
+2. If someone's pay_0 is smaller than 1.5 and their pay_2 is smaller than 1.5, then they are predicted to not default the payment, since the probability of defaulting is low - 0.1429;  
+3. If someone's pay_0 is smaller than 1.5 while their pay_2 is greater than 1.5, then the predicted probability of them defaulting is 0.4161. Although it is lower than 0.5, considering the risk avoidance attribute of banks, these people may not be simply considered as will not default. Rather, they may be treated with more cautiousness.
+
+
+### 2) Random Forest
+```{r}
+# Grow a forest
+rforest <- randomForest(payment_default ~ ., data = transac)
+
+# Plot the results
+plot(rforest)
+```
+
+The plot above shows that a good choice of the number of trees could be around 50. It's not very meaningful to plot dendrograms for trees inside the forest because random forest doesn't aim at growing a perfect single tree but a good group of trees that as a whole predicts well.
