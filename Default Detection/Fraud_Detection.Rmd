@@ -1,0 +1,211 @@
+---
+title: "Fraud Detection"
+author: "Ashley (Shiyi) Yue"
+date: "2023-03-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Predicting Probability of Default 35 pts
+```{r Load the data}
+# Load the data
+rm(list = ls())
+
+library(readr)
+train_ds <- read_csv("loan_train_final.csv")
+test_ds <- read_csv("loan_test_final.csv")
+```
+```{r Explore the data set}
+# Explore the data set
+str(train_ds)
+```
+
+```{r Subset}
+# Subset the dataframe into numeric columns and character columns for further study
+train_num <- train_ds[,sapply(train_ds, is.numeric)]
+train_chr <- train_ds[,sapply(train_ds, is.character)]
+```
+
+
+```{r Check for unique values}
+# Check for unique values for each character attribute
+sapply(train_chr,unique)
+```
+
+All the character variables seem good to be converted to factor variables except employment. 
+
+```{r}
+summary(as.factor(train_ds$employment))
+```
+
+Merge employment less than 4 as a factor ([0,3]), greater than 3 and less than 10 as a factor ([4,9]), greater than 10 as a factor ([10,]). Set NAs as the middle group ([4,9])
+```{r}
+train_ds$employment <- ifelse((train_ds$employment %in% c("< 1","1","2","3")), "< 4", train_ds$employment)
+train_ds$employment <- ifelse((train_ds$employment %in% c("4","5","6","7","8","9")), "< 9", train_ds$employment)
+train_ds$employment <- ifelse(is.na(train_ds$employment), "< 9", train_ds$employment)
+train_ds$employment <- as.factor(train_ds$employment)
+
+test_ds$employment <- ifelse((test_ds$employment %in% c("< 1","1","2","3")), "< 4", test_ds$employment)
+test_ds$employment <- ifelse((test_ds$employment %in% c("4","5","6","7","8","9")), "< 9", test_ds$employment)
+test_ds$employment <- ifelse(is.na(test_ds$employment), "< 9", test_ds$employment)
+test_ds$employment <- as.factor(test_ds$employment)
+
+summary(train_ds$employment)
+```
+
+
+```{r Convert character variables into factor variables}
+# Convert character variables into factor variables
+for (i in colnames(train_chr)) {
+  train_ds[[i]] <- as.factor(train_ds[[i]])
+  test_ds[[i]] <- as.factor(test_ds[[i]])
+}
+```
+
+```{r Boxplot numeric variables to examine outliers}
+# Boxplot numeric variables to examine outliers
+boxplot(train_num, horizontal = T)
+```
+
+The scales of variables vary heavily. Standardization may be necessary.
+```{r Scale the numeric variables}
+# Exclude default from numeric variable list
+train_num <- train_num[,-1]
+
+# Scale the numeric variables
+for (i in colnames(train_num)) {
+  train_ds[[i]] <- as.vector(scale(train_ds[[i]]))
+  train_ds[[i]] 
+  test_ds[[i]] <- as.vector(scale(test_ds[[i]]))
+}
+```
+
+
+```{r Check if there is NA value}
+# Check if there is NA value
+summary(train_num)
+```
+
+There is no NA value for numeric variables.
+
+```{r Convert "default" into factor variable}
+library(caret)
+
+# Convert "default" into factor variable
+train_ds$default <- as.factor(train_ds$default)
+test_ds$default <- as.factor(test_ds$default)
+
+# Check predictors with low variation
+nearZeroVar(train_ds, names = T)
+```
+
+```{r Check predictors with low variation}
+nearZeroVar(test_ds, names = T)
+```
+
+The two variables above  are of low variance in both the training and the testing set. So we exclude them from the model.
+
+```{r Filter out predictors with very low variance}
+# Filter out predictors with very low variance
+train_ds <- train_ds[,-nearZeroVar(train_ds)]
+test_ds <- test_ds[,-nearZeroVar(test_ds)]
+```
+
+```{r Check distribution of Y variable}
+# Check distribution of Y variable
+table(train_ds$default)
+```
+
+The number of observations whose default = 1 is almost twice as the number of observations whose default = 0, which is acceptable.
+
+
+```{r Fit a plain logistic regression model}
+# Fit a plain logistic regression model
+model <- glm(default ~ ., family = "binomial", data = train_ds)
+summary(model)
+```
+
+```{r}
+library(rfUtilities)
+y_test <- as.numeric(test_ds$default)-1
+y_hat <- predict(model, test_ds, type = "response")
+y_hat_cali <- probability.calibration(y_test, y_hat, regularization = T)
+MAE <- mean(abs(y_test - y_hat_cali))
+MAE
+```
+
+There are many insignificant predictors. Consider performing lasso regression to do feature selection.
+
+```{r Convert categorical variables to dummies}
+# Convert categorical variables to dummies
+library(fastDummies)
+
+train_ds_dm <- dummy_cols(train_ds, select_columns = colnames(train_chr), remove_selected_columns = T, remove_first_dummy = T)
+test_ds_dm <- dummy_cols(test_ds, select_columns = colnames(train_chr), remove_selected_columns = T, remove_first_dummy = T)
+```
+
+```{r Fit Lasso regresstion}
+library(glmnet)
+
+set.seed(117)
+
+X_train <- as.matrix(train_ds_dm[,-1])
+y_train <- as.numeric(train_ds$default) - 1
+X_test <- as.matrix(test_ds_dm[,-1])
+y_test <- as.numeric(test_ds$default) - 1
+
+# Specify penalty factor to unpenalize dummy variables
+n_num <- 22
+n_dum <- ncol(X_train) - n_num
+factor <- c(rep(1,n_num), rep(0,n_dum))
+
+# Fit a lasso regression model with cross-validation
+cv.lasso <- cv.glmnet(X_train, y_train, penalty.factor=factor, family="binomial", alpha = 1)
+
+# Fit lasso regression model with min lambda and 1se lambda
+lasso_1se_mod <- glmnet(X_train, y_train, penalty.factor=factor, family="binomial", alpha = 1, lambda = cv.lasso$lambda.1se)
+lasso_min_mod <- glmnet(X_train, y_train, penalty.factor=factor, family="binomial", alpha = 1, lambda = cv.lasso$lambda.min)
+```
+
+```{r Calculate the test MAE for Lasso model}
+# Predict y_hat
+y.hat.lasso.1se <- predict(lasso_1se_mod, X_test, type = "response")
+y.hat.lasso.min <- predict(lasso_min_mod, X_test, type = "response")
+
+# Calibrate probabilities
+cali.y.hat.lasso.1se <- probability.calibration(y_test, y.hat.lasso.1se, regularization = TRUE) 
+cali.y.hat.lasso.min <- probability.calibration(y_test, y.hat.lasso.min, regularization = TRUE) 
+
+# Calculate the test MAE for Lasso model
+MAE_lasso_1se <- mean(abs(y_test - cali.y.hat.lasso.1se))
+MAE_lasso_min <- mean(abs(y_test - cali.y.hat.lasso.min))
+```
+
+
+Note that since there are a lot of dummy variables that should not be removed individually, lasso regression is having some limitations in this case. So I choose to fit ridge regression model and compare the two MAE.
+```{r Fit a ridge regression model with cross-validation}
+# Fit a lasso regression model with cross-validation
+cv.ridge <- cv.glmnet(X_train, y_train, penalty.factor=factor, family="binomial", alpha = 0)
+
+# Fit ridge regression model with min lambda and 1se lambda
+ridge_1se_mod <- glmnet(X_train, y_train, penalty.factor=factor, family="binomial", alpha = 0, lambda = cv.ridge$lambda.1se)
+ridge_min_mod <- glmnet(X_train, y_train, penalty.factor=factor, family="binomial", alpha = 0, lambda = cv.ridge$lambda.min)
+
+y.hat.ridge.1se <- predict(ridge_1se_mod, X_test, type = "response")
+y.hat.ridge.min <- predict(ridge_min_mod, X_test, type = "response")
+
+# Calibrate probabilities
+cali.y.hat.ridge.1se <- probability.calibration(y_test, y.hat.ridge.1se, regularization = TRUE) 
+cali.y.hat.ridge.min <- probability.calibration(y_test, y.hat.ridge.min, regularization = TRUE) 
+
+# Calculate the test MAE for ridge model
+MAE_ridge_1se <- mean(abs(y_test - cali.y.hat.ridge.1se))
+MAE_ridge_min <- mean(abs(y_test - cali.y.hat.ridge.min))
+
+# Compare MAEs obtained by plain logistic regression model, lasso regression model, and ridge regression model
+cbind(MAE, MAE_lasso_1se, MAE_lasso_min, MAE_ridge_1se, MAE_ridge_min)
+```
+According to the comparison table above, based on the given dataset, lasso regression model performs overall better than ridge regression model. The plain model performs actually well. Its performance is between lasso regression with min lambda and 1se lambda. But since lasso model include fewer predictors, which means the model is simpler and could be more generalized, I would go for lasso. In conclusion, I will choose lasso model with the min lambda obtained by k=10 cross-validation, with dummy variables unpenalized.

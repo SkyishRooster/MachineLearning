@@ -1,0 +1,67 @@
+---
+title: "Image Compression"
+author: "Ashley (Shiyi) Yue"
+date: "2023-02-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Image Compression using PCA
+```{r}
+library(jpeg)
+```
+
+```{r}
+# Load the image and separate rgb color
+tiger = readJPEG("tiger.jpeg")
+r = tiger[,,1]
+g = tiger[,,2]
+b = tiger[,,3]
+```
+
+
+```{r}
+# Perform PCA for each color
+r.pca <- prcomp(r, center = F)
+g.pca <- prcomp(g, center = F)
+b.pca <- prcomp(b, center = F)
+```
+
+
+```{r}
+# Plot the fraction of variance as k increases
+r.var <- r.pca$sdev^2 / sum(r.pca$sdev^2)
+r.var.cum <- cumsum(r.var)
+g.var <- g.pca$sdev^2 / sum(g.pca$sdev^2)
+g.var.cum <- cumsum(g.var)
+b.var <- b.pca$sdev^2 / sum(b.pca$sdev^2)
+b.var.cum <- cumsum(b.var)
+
+x <- seq(1,length(r.var))
+
+plot(x, r.var.cum, "l", col = "red")
+lines(x, g.var.cum, "l", col = "green")
+lines(x, b.var.cum, "l", col = "blue")
+```
+
+
+```{r}
+# Save and show the new compressed photos
+p = length(r.pca$sdev)
+rgb.pca <- list(r.pca, g.pca, b.pca)
+
+for (i in c(3, 5, 10, 25, 50, 100, 200, 400, p)) {
+  pca.img <- sapply(rgb.pca, function(j) {
+    compressed.img <- j$x[,1:i] %*% t(j$rotation[,1:i])
+  }, simplify = 'array')
+  writeJPEG(pca.img, paste('tiger_', round(i,0), '_components.jpg', sep = ''))
+  jj <- readJPEG(paste('tiger_', round(i,0), '_components.jpg', sep = ''), native=TRUE)
+  plot(0:1,0:1,type="n",axes=FALSE, main = paste('tiger_', round(i,0), '_components.jpg', sep = ''))
+  rasterImage(jj,0,0,1,1)
+}
+```
+
